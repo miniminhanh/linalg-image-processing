@@ -1,0 +1,8 @@
+# Packages needed to run the filter UI (app.py) on a server.
+#
+# opencv-python-headless is OpenCV without the desktop window code, which servers don't have.
+# The basic-*.py scripts open windows with cv2.imshow, so to run those on your own computer
+# use the regular package instead:  pip install opencv-python numpy matplotlib
+# (don't install both opencv packages in the same environment - they clash).
+numpy>=1.26
+opencv-python-headless>=4.9

@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>linalg image processing</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66;
+    --line: #e2e0da; --accent: #2f5d50; --accent-soft: #e6efeb; --error: #a33a2b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { padding: 28px 32px 8px; }
+  header h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  main {
+    display: grid; grid-template-columns: 320px 1fr; gap: 24px;
+    padding: 20px 32px 40px; align-items: start;
+  }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px;
+  }
+  .controls { position: sticky; top: 20px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+       margin: 0 0 10px; font-weight: 600; }
+  .step + .step { margin-top: 22px; }
+
+  .drop {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; min-height: 130px; padding: 16px; text-align: center; cursor: pointer;
+    border: 1.5px dashed var(--line); border-radius: 8px; color: var(--muted);
+    transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop strong { color: var(--ink); font-weight: 600; }
+  .drop img { max-width: 100%; max-height: 160px; border-radius: 4px; }
+  .drop .fname { font-size: 13px; word-break: break-all; }
+  input[type=file] { display: none; }
+
+  .filters { display: flex; flex-direction: column; gap: 8px; }
+  .filter {
+    display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+    cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .filter:hover { border-color: #c9c6be; }
+  .filter input { display: none; }
+  .filter .name { font-weight: 600; }
+  .filter .desc { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .filter:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+
+  .params[hidden] { display: none; }
+  .slider + .slider { margin-top: 16px; }
+  .slider .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .slider label { font-weight: 600; }
+  .slider output {
+    font-variant-numeric: tabular-nums; font-size: 13px; padding: 1px 8px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent); font-weight: 600;
+  }
+  .slider input[type=range] { width: 100%; margin: 8px 0 2px; accent-color: var(--accent); }
+  .slider .ticks { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+
+  button.apply {
+    width: 100%; margin-top: 22px; padding: 11px; border: 0; border-radius: 8px;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.apply:disabled { opacity: .45; cursor: not-allowed; }
+  .status { margin-top: 10px; font-size: 13px; color: var(--muted); min-height: 1.5em; }
+  .status.error { color: var(--error); }
+
+  .results-empty {
+    display: flex; align-items: center; justify-content: center; min-height: 360px;
+    color: var(--muted); text-align: center;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
+  figure { margin: 0; }
+  figure .frame {
+    background: #efede8; border-radius: 6px; overflow: hidden; display: flex;
+    align-items: center; justify-content: center;
+  }
+  figure img { display: block; max-width: 100%; height: auto; cursor: zoom-in; }
+  figcaption {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    margin-top: 8px; font-size: 14px; font-weight: 600;
+  }
+  figcaption a { font-weight: 500; font-size: 13px; color: var(--accent); text-decoration: none; }
+  figcaption a:hover { text-decoration: underline; }
+
+  .lightbox {
+    position: fixed; inset: 0; background: rgba(20,20,18,.88); display: none;
+    align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; z-index: 10;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 100%; max-height: 100%; }
+</style>
+</head>
+<body>
+<header>
+  <h1>linalg image processing</h1>
+  <p>Upload an image and apply one of the filters from this repo.</p>
+</header>
+
+<main>
+  <section class="panel controls">
+    <div class="step">
+      <h2>1. Image</h2>
+      <label class="drop" id="drop">
+        <span id="dropContent"><strong>Click to upload</strong><br>or drag an image here</span>
+        <input type="file" id="file" accept="image/*">
+      </label>
+    </div>
+
+    <div class="step">
+      <h2>2. Filter</h2>
+      <div class="filters" id="filters"><span class="status">Loading filters…</span></div>
+    </div>
+
+    <div class="step params" id="params" hidden>
+      <h2>3. Gaussian kernel</h2>
+      <div class="slider">
+        <div class="row"><label for="kernelSize">Kernel size</label><output id="kernelSizeOut"></output></div>
+        <input type="range" id="kernelSize" min="0" max="2" step="1" value="0">
+        <div class="ticks" id="kernelTicks"></div>
+      </div>
+      <div class="slider">
+        <div class="row"><label for="sigma">Standard deviation (&sigma;)</label><output id="sigmaOut"></output></div>
+        <input type="range" id="sigma" step="0.01">
+        <div class="ticks"><span id="sigmaMinLabel"></span><span id="sigmaMaxLabel"></span></div>
+      </div>
+    </div>
+
+    <button class="apply" id="apply" disabled>Apply filter</button>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section class="panel" id="results">
+    <div class="results-empty">Your original and filtered images will appear here.</div>
+  </section>
+</main>
+
+<div class="lightbox" id="lightbox"><img alt=""></div>
+
+<script>
+  const fileInput = document.getElementById('file');
+  const drop = document.getElementById('drop');
+  const dropContent = document.getElementById('dropContent');
+  const filtersEl = document.getElementById('filters');
+  const applyBtn = document.getElementById('apply');
+  const statusEl = document.getElementById('status');
+  const resultsEl = document.getElementById('results');
+  const lightbox = document.getElementById('lightbox');
+  const paramsEl = document.getElementById('params');
+  const kernelSlider = document.getElementById('kernelSize');
+  const kernelOut = document.getElementById('kernelSizeOut');
+  const sigmaSlider = document.getElementById('sigma');
+  const sigmaOut = document.getElementById('sigmaOut');
+
+  let filterInfo = {};      // id -> filter details from the server
+  let kernelSizes = [3, 5, 7];
+  let hasResults = false;
+
+  let imageDataUrl = null;
+  let fileName = 'image';
+
+  function setStatus(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.classList.toggle('error', isError);
+  }
+
+  function selectedFilter() {
+    const checked = document.querySelector('input[name=filter]:checked');
+    return checked ? checked.value : null;
+  }
+
+  function updateButton() {
+    applyBtn.disabled = !(imageDataUrl && selectedFilter());
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // Load filter list from the server (filters.py)
+  fetch('/filters').then(r => r.json()).then(data => {
+    const list = data.filters;
+    list.forEach(f => { filterInfo[f.id] = f; });
+
+    kernelSizes = data.kernel_sizes;
+    kernelSlider.max = kernelSizes.length - 1;
+    document.getElementById('kernelTicks').innerHTML =
+      kernelSizes.map(k => `<span>${k}&times;${k}</span>`).join('');
+    sigmaSlider.min = data.sigma_min;
+    sigmaSlider.max = data.sigma_max;
+    document.getElementById('sigmaMinLabel').textContent = data.sigma_min;
+    document.getElementById('sigmaMaxLabel').textContent = data.sigma_max;
+
+    filtersEl.innerHTML = list.map((f, i) => `
+      <label class="filter">
+        <input type="radio" name="filter" value="${f.id}" ${i === 0 ? 'checked' : ''}>
+        <span class="name">${escapeHtml(f.name)}</span>
+        <span class="desc">${escapeHtml(f.description)}</span>
+      </label>`).join('');
+    filtersEl.addEventListener('change', onFilterChange);
+    onFilterChange();
+  }).catch(() => {
+    filtersEl.innerHTML = '<span class="status error">Could not load filters. Is app.py running?</span>';
+  });
+
+  // Sliders: shown only for filters that use a Gaussian kernel
+  function updateSliderLabels() {
+    const k = kernelSizes[kernelSlider.value];
+    kernelOut.textContent = `${k} × ${k}`;
+    sigmaOut.textContent = Number(sigmaSlider.value).toFixed(2);
+  }
+
+  function onFilterChange() {
+    const f = filterInfo[selectedFilter()];
+    const defaults = f && f.gaussian_defaults;
+    paramsEl.hidden = !defaults;
+    if (defaults) {
+      // Reset to this filter's defaults (the values used in its standalone script)
+      kernelSlider.value = Math.max(0, kernelSizes.indexOf(defaults[0]));
+      sigmaSlider.value = defaults[1];
+      updateSliderLabels();
+    }
+    updateButton();
+  }
+
+  kernelSlider.addEventListener('input', updateSliderLabels);
+  sigmaSlider.addEventListener('input', updateSliderLabels);
+  // Once results are on screen, re-run automatically when a slider is released
+  [kernelSlider, sigmaSlider].forEach(el => el.addEventListener('change', () => {
+    if (hasResults && !applyBtn.disabled) applyFilter();
+  }));
+
+  // Upload handling
+  function loadFile(file) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setStatus('Please choose an image file.', true); return; }
+    fileName = file.name.replace(/\.[^.]+$/, '') || 'image';
+    const reader = new FileReader();
+    reader.onload = () => {
+      imageDataUrl = reader.result;
+      dropContent.innerHTML = `<img src="${imageDataUrl}" alt=""><div class="fname">${escapeHtml(file.name)}</div>`;
+      setStatus('');
+      updateButton();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  fileInput.addEventListener('change', () => loadFile(fileInput.files[0]));
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); drop.classList.add('over');
+  }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); drop.classList.remove('over');
+  }));
+  drop.addEventListener('drop', e => loadFile(e.dataTransfer.files[0]));
+
+  // Apply the filter
+  applyBtn.addEventListener('click', applyFilter);
+
+  async function applyFilter() {
+    const filter = selectedFilter();
+    const body = {filter, image: imageDataUrl};
+    if (!paramsEl.hidden) {
+      body.kernel_size = kernelSizes[kernelSlider.value];
+      body.sigma = Number(sigmaSlider.value);
+    }
+    applyBtn.disabled = true;
+    setStatus('Processing…');
+    try {
+      const res = await fetch('/process', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Processing failed');
+      renderResults(filter, data.outputs, body);
+      hasResults = true;
+      setStatus(data.resized_to
+        ? `Done. Large image was shrunk to ${data.resized_to[0]}×${data.resized_to[1]} for processing.`
+        : 'Done.');
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      updateButton();
+    }
+  }
+
+  function renderResults(filter, outputs, params) {
+    const suffix = params.kernel_size ? `-k${params.kernel_size}-s${params.sigma}` : '';
+    const items = [{title: 'Original', src: imageDataUrl, download: false}]
+      .concat(outputs.map(o => ({title: o.title, src: 'data:image/png;base64,' + o.image, download: true})));
+    resultsEl.innerHTML = '<div class="grid">' + items.map((it, i) => `
+      <figure>
+        <div class="frame"><img src="${it.src}" alt="${escapeHtml(it.title)}"></div>
+        <figcaption>
+          <span>${escapeHtml(it.title)}</span>
+          ${it.download ? `<a href="${it.src}" download="${escapeHtml(fileName)}-${filter}${suffix}-${i}.png">Download</a>` : ''}
+        </figcaption>
+      </figure>`).join('') + '</div>';
+  }
+
+  // Click an image to view it full size
+  resultsEl.addEventListener('click', e => {
+    if (e.target.tagName === 'IMG') {
+      lightbox.querySelector('img').src = e.target.src;
+      lightbox.classList.add('open');
+    }
+  });
+  lightbox.addEventListener('click', () => lightbox.classList.remove('open'));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') lightbox.classList.remove('open'); });
+</script>
+</body>
+</html>
