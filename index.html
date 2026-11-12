@@ -67,6 +67,7 @@
   .slider .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .slider [hidden] { display: none; }
 
+  .toggle[hidden] { display: none; }
   .toggle {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     margin-bottom: 16px; cursor: pointer; font-weight: 600;
@@ -140,8 +141,8 @@
     </div>
 
     <div class="step params" id="params" hidden>
-      <h2>3. Gaussian kernel</h2>
-      <label class="toggle">
+      <h2 id="paramsTitle">3. Gaussian kernel</h2>
+      <label class="toggle" id="autoKernelRow">
         <span>Automatic kernel size</span>
         <input type="checkbox" id="autoKernel">
         <span class="switch" aria-hidden="true"></span>
@@ -156,7 +157,7 @@
           Set from &sigma;: 2&middot;&lceil;3&sigma;&rceil; + 1, so the kernel reaches 3&sigma; on each side.
         </div>
       </div>
-      <div class="slider">
+      <div class="slider" id="sigmaRow">
         <div class="row"><label for="sigma">Standard deviation (&sigma;)</label><output id="sigmaOut"></output></div>
         <input type="range" id="sigma" step="0.01">
         <div class="ticks"><span id="sigmaMinLabel"></span><span id="sigmaMaxLabel"></span></div>
@@ -191,6 +192,10 @@
   const autoKernelToggle = document.getElementById('autoKernel');
   const manualKernelEl = document.getElementById('manualKernel');
   const autoKernelHint = document.getElementById('autoKernelHint');
+  const autoKernelRow = document.getElementById('autoKernelRow');
+  const sigmaRow = document.getElementById('sigmaRow');
+  const paramsTitle = document.getElementById('paramsTitle');
+  let controls = null;  // 'gaussian', 'kernel' (size only) or null, for the selected filter
 
   let filterInfo = {};      // id -> filter details from the server
   let kernelSizes = [3, 5, 7];
@@ -249,14 +254,19 @@
     return Math.max(3, 2 * Math.ceil(3 * sigma) + 1);
   }
 
+  // Automatic kernel size only applies to Gaussian kernels (it is worked out from sigma)
+  function isAuto() {
+    return controls === 'gaussian' && autoKernelToggle.checked;
+  }
+
   function currentKernelSize() {
-    return autoKernelToggle.checked
+    return isAuto()
       ? autoKernelSize(Number(sigmaSlider.value))
       : kernelSizes[kernelSlider.value];
   }
 
   function updateSliderLabels() {
-    const auto = autoKernelToggle.checked;
+    const auto = isAuto();
     const k = currentKernelSize();
     kernelOut.textContent = auto ? `${k} × ${k} (auto)` : `${k} × ${k}`;
     sigmaOut.textContent = Number(sigmaSlider.value).toFixed(2);
@@ -266,12 +276,16 @@
 
   function onFilterChange() {
     const f = filterInfo[selectedFilter()];
-    const defaults = f && f.gaussian_defaults;
-    paramsEl.hidden = !defaults;
-    if (defaults) {
+    controls = f ? f.controls : null;
+    paramsEl.hidden = !controls;
+    if (controls) {
+      const gaussian = controls === 'gaussian';
+      paramsTitle.textContent = gaussian ? '3. Gaussian kernel' : '3. Kernel';
+      autoKernelRow.hidden = !gaussian;
+      sigmaRow.hidden = !gaussian;
       // Reset to this filter's defaults (the values used in its standalone script)
-      kernelSlider.value = Math.max(0, kernelSizes.indexOf(defaults[0]));
-      sigmaSlider.value = defaults[1];
+      kernelSlider.value = Math.max(0, kernelSizes.indexOf(f.defaults.kernel_size));
+      if (gaussian) sigmaSlider.value = f.defaults.sigma;
       updateSliderLabels();
     }
     updateButton();
@@ -315,13 +329,11 @@
   async function applyFilter() {
     const filter = selectedFilter();
     const body = {filter, image: imageDataUrl};
-    if (!paramsEl.hidden) {
-      body.sigma = Number(sigmaSlider.value);
-      if (autoKernelToggle.checked) {
-        body.auto_kernel = true;
-      } else {
-        body.kernel_size = kernelSizes[kernelSlider.value];
-      }
+    if (controls === 'gaussian') body.sigma = Number(sigmaSlider.value);
+    if (isAuto()) {
+      body.auto_kernel = true;
+    } else if (controls) {
+      body.kernel_size = kernelSizes[kernelSlider.value];
     }
     applyBtn.disabled = true;
     setStatus('Processing…');
@@ -346,7 +358,8 @@
   }
 
   function renderResults(filter, outputs, params) {
-    const suffix = params.kernel_size ? `-k${params.kernel_size}-s${params.sigma}` : '';
+    const suffix = (params.kernel_size ? `-k${params.kernel_size}` : '') +
+                   (params.sigma !== undefined ? `-s${params.sigma}` : '');
     const items = [{title: 'Original', src: imageDataUrl, download: false}]
       .concat(outputs.map(o => ({title: o.title, src: 'data:image/png;base64,' + o.image, download: true})));
     resultsEl.innerHTML = '<div class="grid">' + items.map((it, i) => `

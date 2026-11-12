@@ -3,11 +3,12 @@ The filters from this repo, wrapped as functions so the UI (app.py) can use them
 
 Each filter takes a BGR image (as returned by cv2.imread / cv2.imdecode) and returns
 a list of (title, image) pairs - one pair per window the original script opens.
-Filters that use a Gaussian kernel also take kernel_size and sigma, which the UI sets
-with sliders; their defaults match the standalone scripts.
+Filters with adjustable kernels also take kernel_size (and sigma, for Gaussian kernels),
+which the UI sets with sliders; their defaults match the standalone scripts.
 The maths matches the standalone scripts:
 
     basic-gaussian-blur.py   -> gaussian_blur
+    basic-box-blur.py        -> box_blur
     basic-sharpening.py      -> sharpen
     basic-edge-detection.py  -> edge_detection
     basic-deblurring.py      -> deblur
@@ -24,6 +25,14 @@ def gaussian_blur(image, kernel_size=3, sigma=0.8):
     # 0.8 is the sigma OpenCV picks automatically for a 3x3 kernel (sigma=0 in basic-gaussian-blur.py)
     blurred_image = cv2.GaussianBlur(image, (kernel_size, kernel_size), sigma)
     return [('Gaussian Blurred Image', blurred_image)]
+
+
+def box_blur(image, kernel_size=3):
+    # Every pixel becomes the plain average of the kernel_size x kernel_size square around it:
+    # a kernel of all ones, divided by the number of pixels so the weights sum to 1
+    kernel = np.ones((kernel_size, kernel_size), dtype=np.float32) / (kernel_size * kernel_size)
+    blurred_image = cv2.filter2D(image, -1, kernel)
+    return [('Box Blurred Image', blurred_image)]
 
 
 def sharpen(image):
@@ -120,7 +129,7 @@ def deblur(image, kernel_size=7, sigma=2.0):
     return [(f'{name} ({psnr(name)})', outputs[name]) for name in names]
 
 
-# Slider options shared by every filter that uses a Gaussian kernel
+# Slider options shared by every filter with an adjustable kernel
 KERNEL_SIZES = (3, 5, 7)
 SIGMA_MIN, SIGMA_MAX = 0.01, 3.0
 
@@ -133,32 +142,45 @@ def auto_kernel_size(sigma):
     """
     return max(3, 2 * math.ceil(3 * sigma) + 1)
 
-# id -> display name, description, function, and default (kernel_size, sigma)
-# (None means the filter has no Gaussian kernel, so the UI hides the sliders)
+# id -> display name, description, function, which controls the UI shows, and their defaults.
+#   controls = 'gaussian': kernel size + sigma sliders (and the automatic kernel size switch)
+#   controls = 'kernel':   kernel size slider only
+#   controls = None:       no controls (fixed kernel)
 FILTERS = {
     'gaussian-blur': {
         'name': 'Gaussian Blur',
         'description': 'Smooths the image with a Gaussian kernel.',
         'func': gaussian_blur,
-        'gaussian_defaults': (3, 0.8),
+        'controls': 'gaussian',
+        'defaults': {'kernel_size': 3, 'sigma': 0.8},
+    },
+    'box-blur': {
+        'name': 'Box Blur',
+        'description': 'Replaces each pixel with the plain average of the square around it (a kernel of equal weights).',
+        'func': box_blur,
+        'controls': 'kernel',
+        'defaults': {'kernel_size': 3},
     },
     'sharpening': {
         'name': 'Sharpening',
         'description': '3x3 sharpening kernel [[0,-1,0],[-1,5,-1],[0,-1,0]].',
         'func': sharpen,
-        'gaussian_defaults': None,
+        'controls': None,
+        'defaults': {},
     },
     'edge-detection': {
         'name': 'Edge Detection',
         'description': 'Gaussian smoothing, then Sobel and Prewitt gradient magnitude, and Canny edges (thresholds 100/200).',
         'func': edge_detection,
-        'gaussian_defaults': (3, 0.8),
+        'controls': 'gaussian',
+        'defaults': {'kernel_size': 3, 'sigma': 0.8},
     },
     'deblurring': {
         'name': 'Deblurring Demo',
         'description': 'Blurs the image with a known Gaussian kernel, then undoes it with a naive inverse '
                        'filter and a Wiener filter. PSNR vs. the original is shown in each title.',
         'func': deblur,
-        'gaussian_defaults': (7, 2.0),
+        'controls': 'gaussian',
+        'defaults': {'kernel_size': 7, 'sigma': 2.0},
     },
 }

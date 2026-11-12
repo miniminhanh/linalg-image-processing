@@ -89,7 +89,8 @@ class Handler(BaseHTTPRequestHandler):
                         'id': fid,
                         'name': f['name'],
                         'description': f['description'],
-                        'gaussian_defaults': f['gaussian_defaults'],
+                        'controls': f['controls'],
+                        'defaults': f['defaults'],
                     }
                     for fid, f in FILTERS.items()
                 ],
@@ -125,18 +126,19 @@ class Handler(BaseHTTPRequestHandler):
 
             f = FILTERS[filter_id]
             kwargs = {}
-            if f['gaussian_defaults'] is not None:
-                default_size, default_sigma = f['gaussian_defaults']
-                sigma = float(payload.get('sigma', default_sigma))
+            if f['controls'] == 'gaussian':
+                sigma = float(payload.get('sigma', f['defaults']['sigma']))
                 if not SIGMA_MIN <= sigma <= SIGMA_MAX:
                     self.send_json(400, {'error': f'Sigma must be between {SIGMA_MIN} and {SIGMA_MAX}'})
                     return
+                kwargs['sigma'] = sigma
 
-                if payload.get('auto_kernel'):
+            if f['controls'] in ('gaussian', 'kernel'):
+                if f['controls'] == 'gaussian' and payload.get('auto_kernel'):
                     # Automatic mode: the kernel size follows from sigma
-                    kernel_size = auto_kernel_size(sigma)
+                    kernel_size = auto_kernel_size(kwargs['sigma'])
                 else:
-                    kernel_size = int(payload.get('kernel_size', default_size))
+                    kernel_size = int(payload.get('kernel_size', f['defaults']['kernel_size']))
                     if kernel_size not in KERNEL_SIZES:
                         self.send_json(400, {'error': f'Kernel size must be one of {KERNEL_SIZES}'})
                         return
@@ -144,7 +146,7 @@ class Handler(BaseHTTPRequestHandler):
                 if kernel_size > min(image.shape[:2]):
                     self.send_json(400, {'error': f'Image is too small for a {kernel_size}x{kernel_size} kernel'})
                     return
-                kwargs = {'kernel_size': kernel_size, 'sigma': sigma}
+                kwargs['kernel_size'] = kernel_size
 
             # Wait up to 60 s for a free processing slot
             if not job_slots.acquire(timeout=60):
