@@ -30,26 +30,37 @@ def sharpen(image):
     return [('Sharpened Image', sharpened_image)]
 
 
+def gradient_edges(image, x_kernel):
+    """Edge strength from a pair of gradient kernels: the y kernel is the transpose of the x kernel."""
+    # CV_64F keeps negative gradient values
+    grad_x = cv2.filter2D(image, cv2.CV_64F, x_kernel)
+    grad_y = cv2.filter2D(image, cv2.CV_64F, x_kernel.T)
+
+    # Gradient magnitude = sqrt(gx^2 + gy^2), scaled back to 0-255 for display
+    magnitude = np.sqrt(grad_x ** 2 + grad_y ** 2)
+    return cv2.convertScaleAbs(magnitude / max(magnitude.max(), 1e-12) * 255)
+
+
 def edge_detection(image, kernel_size=3, sigma=0.8):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # kernel_size and sigma control the smoothing applied before finding edges
     blurred = cv2.GaussianBlur(gray, (kernel_size, kernel_size), sigma)
 
-    # Sobel kernels; the y kernel is the transpose of the x kernel
+    # Sobel: weights the centre row 2x, so it smooths a little while differentiating
     sobel_x_kernel = np.array([[-1, 0, 1],
                                [-2, 0, 2],
                                [-1, 0, 1]], dtype=np.float32)
-    sobel_y_kernel = sobel_x_kernel.T
+    sobel_edges = gradient_edges(blurred, sobel_x_kernel)
 
-    grad_x = cv2.filter2D(blurred, cv2.CV_64F, sobel_x_kernel)
-    grad_y = cv2.filter2D(blurred, cv2.CV_64F, sobel_y_kernel)
-
-    magnitude = np.sqrt(grad_x ** 2 + grad_y ** 2)
-    sobel_edges = cv2.convertScaleAbs(magnitude / max(magnitude.max(), 1e-12) * 255)
+    # Prewitt: same idea with equal weights on every row (a plain average, no extra smoothing)
+    prewitt_x_kernel = np.array([[-1, 0, 1],
+                                 [-1, 0, 1],
+                                 [-1, 0, 1]], dtype=np.float32)
+    prewitt_edges = gradient_edges(blurred, prewitt_x_kernel)
 
     canny_edges = cv2.Canny(blurred, 100, 200)
 
-    return [('Sobel Edges', sobel_edges), ('Canny Edges', canny_edges)]
+    return [('Sobel Edges', sobel_edges), ('Prewitt Edges', prewitt_edges), ('Canny Edges', canny_edges)]
 
 
 def deblur(image, kernel_size=7, sigma=2.0):
@@ -128,7 +139,7 @@ FILTERS = {
     },
     'edge-detection': {
         'name': 'Edge Detection',
-        'description': 'Gaussian smoothing, then Sobel gradient magnitude and Canny edges (thresholds 100/200).',
+        'description': 'Gaussian smoothing, then Sobel and Prewitt gradient magnitude, and Canny edges (thresholds 100/200).',
         'func': edge_detection,
         'gaussian_defaults': (3, 0.8),
     },

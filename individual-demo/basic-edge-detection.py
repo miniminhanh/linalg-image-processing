@@ -25,6 +25,20 @@ magnitude = np.sqrt(grad_x ** 2 + grad_y ** 2)
 sobel_edges = cv2.convertScaleAbs(magnitude / magnitude.max() * 255)
 
 
+# Prewitt kernels: same idea as Sobel, but every row is weighted equally
+# (Sobel weights the centre row 2x, which adds a little smoothing)
+prewitt_x_kernel = np.array([[-1, 0, 1],
+                             [-1, 0, 1],
+                             [-1, 0, 1]], dtype=np.float32)
+prewitt_y_kernel = prewitt_x_kernel.T
+
+prewitt_grad_x = cv2.filter2D(blurred, cv2.CV_64F, prewitt_x_kernel)
+prewitt_grad_y = cv2.filter2D(blurred, cv2.CV_64F, prewitt_y_kernel)
+
+prewitt_magnitude = np.sqrt(prewitt_grad_x ** 2 + prewitt_grad_y ** 2)
+prewitt_edges = cv2.convertScaleAbs(prewitt_magnitude / prewitt_magnitude.max() * 255)
+
+
 # Canny edge detection: gradients + non-maximum suppression + hysteresis thresholding
 # 100 and 200 are the lower and upper thresholds
 canny_edges = cv2.Canny(blurred, 100, 200)
@@ -33,6 +47,7 @@ canny_edges = cv2.Canny(blurred, 100, 200)
 # Display the original and edge-detected images
 cv2.imshow('Original Image', image)
 cv2.imshow('Sobel Edges', sobel_edges)
+cv2.imshow('Prewitt Edges', prewitt_edges)
 cv2.imshow('Canny Edges', canny_edges)
 
 cv2.waitKey(0)
