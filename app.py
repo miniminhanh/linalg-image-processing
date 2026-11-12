@@ -28,7 +28,7 @@ os.environ.setdefault('OPENCV_IO_MAX_IMAGE_PIXELS', str(50_000_000))
 import cv2
 import numpy as np
 
-from filters import FILTERS, KERNEL_SIZES, SIGMA_MIN, SIGMA_MAX
+from filters import FILTERS, KERNEL_SIZES, SIGMA_MIN, SIGMA_MAX, auto_kernel_size
 
 HOST = os.environ.get('HOST', '127.0.0.1')
 PORT = int(os.environ.get('PORT', 8000))
@@ -127,13 +127,22 @@ class Handler(BaseHTTPRequestHandler):
             kwargs = {}
             if f['gaussian_defaults'] is not None:
                 default_size, default_sigma = f['gaussian_defaults']
-                kernel_size = int(payload.get('kernel_size', default_size))
                 sigma = float(payload.get('sigma', default_sigma))
-                if kernel_size not in KERNEL_SIZES:
-                    self.send_json(400, {'error': f'Kernel size must be one of {KERNEL_SIZES}'})
-                    return
                 if not SIGMA_MIN <= sigma <= SIGMA_MAX:
                     self.send_json(400, {'error': f'Sigma must be between {SIGMA_MIN} and {SIGMA_MAX}'})
+                    return
+
+                if payload.get('auto_kernel'):
+                    # Automatic mode: the kernel size follows from sigma
+                    kernel_size = auto_kernel_size(sigma)
+                else:
+                    kernel_size = int(payload.get('kernel_size', default_size))
+                    if kernel_size not in KERNEL_SIZES:
+                        self.send_json(400, {'error': f'Kernel size must be one of {KERNEL_SIZES}'})
+                        return
+
+                if kernel_size > min(image.shape[:2]):
+                    self.send_json(400, {'error': f'Image is too small for a {kernel_size}x{kernel_size} kernel'})
                     return
                 kwargs = {'kernel_size': kernel_size, 'sigma': sigma}
 
@@ -147,7 +156,11 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 job_slots.release()
 
-            self.send_json(200, {'outputs': result, 'resized_to': resized_to})
+            self.send_json(200, {
+                'outputs': result,
+                'resized_to': resized_to,
+                'kernel_size': kwargs.get('kernel_size'),  # the size actually used (matters in automatic mode)
+            })
         except Exception as e:  # report errors to the page instead of crashing the server
             self.send_json(500, {'error': str(e)})
 

@@ -14,6 +14,8 @@ The maths matches the standalone scripts:
 
 To add a new filter to the UI, write a function here and add it to FILTERS at the bottom.
 """
+import math
+
 import cv2
 import numpy as np
 
@@ -121,6 +123,15 @@ def deblur(image, kernel_size=7, sigma=2.0):
 # Slider options shared by every filter that uses a Gaussian kernel
 KERNEL_SIZES = (3, 5, 7)
 SIGMA_MIN, SIGMA_MAX = 0.01, 3.0
+
+
+def auto_kernel_size(sigma):
+    """
+    Kernel size that fits a Gaussian of this sigma: wide enough to reach 3 sigma on each side,
+    which holds over 99% of the curve. 2 * ceil(3 * sigma) + 1 is always odd, so the kernel has
+    a centre pixel. Never smaller than 3.  e.g. sigma 0.8 -> 7x7, sigma 2 -> 13x13, sigma 3 -> 19x19.
+    """
+    return max(3, 2 * math.ceil(3 * sigma) + 1)
 
 # id -> display name, description, function, and default (kernel_size, sigma)
 # (None means the filter has no Gaussian kernel, so the UI hides the sliders)

@@ -64,6 +64,25 @@
   }
   .slider input[type=range] { width: 100%; margin: 8px 0 2px; accent-color: var(--accent); }
   .slider .ticks { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .slider .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .slider [hidden] { display: none; }
+
+  .toggle {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-bottom: 16px; cursor: pointer; font-weight: 600;
+  }
+  .toggle input { position: absolute; opacity: 0; pointer-events: none; }
+  .toggle .switch {
+    position: relative; flex: none; width: 36px; height: 20px; border-radius: 999px;
+    background: var(--line); transition: background .15s;
+  }
+  .toggle .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .15s;
+  }
+  .toggle input:checked + .switch { background: var(--accent); }
+  .toggle input:checked + .switch::after { transform: translateX(16px); }
+  .toggle input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   button.apply {
     width: 100%; margin-top: 22px; padding: 11px; border: 0; border-radius: 8px;
@@ -122,10 +141,20 @@
 
     <div class="step params" id="params" hidden>
       <h2>3. Gaussian kernel</h2>
+      <label class="toggle">
+        <span>Automatic kernel size</span>
+        <input type="checkbox" id="autoKernel">
+        <span class="switch" aria-hidden="true"></span>
+      </label>
       <div class="slider">
         <div class="row"><label for="kernelSize">Kernel size</label><output id="kernelSizeOut"></output></div>
-        <input type="range" id="kernelSize" min="0" max="2" step="1" value="0">
-        <div class="ticks" id="kernelTicks"></div>
+        <div id="manualKernel">
+          <input type="range" id="kernelSize" min="0" max="2" step="1" value="0">
+          <div class="ticks" id="kernelTicks"></div>
+        </div>
+        <div class="hint" id="autoKernelHint" hidden>
+          Set from &sigma;: 2&middot;&lceil;3&sigma;&rceil; + 1, so the kernel reaches 3&sigma; on each side.
+        </div>
       </div>
       <div class="slider">
         <div class="row"><label for="sigma">Standard deviation (&sigma;)</label><output id="sigmaOut"></output></div>
@@ -159,6 +188,9 @@
   const kernelOut = document.getElementById('kernelSizeOut');
   const sigmaSlider = document.getElementById('sigma');
   const sigmaOut = document.getElementById('sigmaOut');
+  const autoKernelToggle = document.getElementById('autoKernel');
+  const manualKernelEl = document.getElementById('manualKernel');
+  const autoKernelHint = document.getElementById('autoKernelHint');
 
   let filterInfo = {};      // id -> filter details from the server
   let kernelSizes = [3, 5, 7];
@@ -212,10 +244,24 @@
   });
 
   // Sliders: shown only for filters that use a Gaussian kernel
+  // Same formula as auto_kernel_size() in filters.py
+  function autoKernelSize(sigma) {
+    return Math.max(3, 2 * Math.ceil(3 * sigma) + 1);
+  }
+
+  function currentKernelSize() {
+    return autoKernelToggle.checked
+      ? autoKernelSize(Number(sigmaSlider.value))
+      : kernelSizes[kernelSlider.value];
+  }
+
   function updateSliderLabels() {
-    const k = kernelSizes[kernelSlider.value];
-    kernelOut.textContent = `${k} × ${k}`;
+    const auto = autoKernelToggle.checked;
+    const k = currentKernelSize();
+    kernelOut.textContent = auto ? `${k} × ${k} (auto)` : `${k} × ${k}`;
     sigmaOut.textContent = Number(sigmaSlider.value).toFixed(2);
+    manualKernelEl.hidden = auto;
+    autoKernelHint.hidden = !auto;
   }
 
   function onFilterChange() {
@@ -234,7 +280,8 @@
   kernelSlider.addEventListener('input', updateSliderLabels);
   sigmaSlider.addEventListener('input', updateSliderLabels);
   // Once results are on screen, re-run automatically when a slider is released
-  [kernelSlider, sigmaSlider].forEach(el => el.addEventListener('change', () => {
+  autoKernelToggle.addEventListener('change', updateSliderLabels);
+  [kernelSlider, sigmaSlider, autoKernelToggle].forEach(el => el.addEventListener('change', () => {
     if (hasResults && !applyBtn.disabled) applyFilter();
   }));
 
@@ -269,8 +316,12 @@
     const filter = selectedFilter();
     const body = {filter, image: imageDataUrl};
     if (!paramsEl.hidden) {
-      body.kernel_size = kernelSizes[kernelSlider.value];
       body.sigma = Number(sigmaSlider.value);
+      if (autoKernelToggle.checked) {
+        body.auto_kernel = true;
+      } else {
+        body.kernel_size = kernelSizes[kernelSlider.value];
+      }
     }
     applyBtn.disabled = true;
     setStatus('Processing…');
@@ -282,7 +333,7 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Processing failed');
-      renderResults(filter, data.outputs, body);
+      renderResults(filter, data.outputs, {...body, kernel_size: data.kernel_size});
       hasResults = true;
       setStatus(data.resized_to
         ? `Done. Large image was shrunk to ${data.resized_to[0]}×${data.resized_to[1]} for processing.`
